@@ -243,13 +243,23 @@
                 if (isMicActive) return;
                 hideError();
 
-                // Check if browser supports getUserMedia
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    showError('Your browser does not support microphone access. Please use a modern browser (Chrome, Firefox, Edge).');
-                    return;
-                }
-
                 try {
+                    // Check if browser supports getUserMedia
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        showError('Your browser does not support microphone access. Please use a modern browser (Chrome, Firefox, Edge).');
+                        return;
+                    }
+
+                    // FIX 1: Initialize and resume AudioContext FIRST.
+                    // Browsers often drop the "user gesture" flag after an asynchronous await (like getUserMedia).
+                    // If the context isn't resumed during the direct click event, audio processing will remain suspended.
+                    if (!audioCtx) {
+                        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    if (audioCtx.state === 'suspended') {
+                        await audioCtx.resume();
+                    }
+
                     stream = await navigator.mediaDevices.getUserMedia({ 
                         audio: { 
                             echoCancellation: false, 
@@ -257,7 +267,21 @@
                             autoGainControl: false 
                         } 
                     });
+
+                    destroyGraph(); // clean any previous connections
+                    hideError();
+                    buildAudioGraph(stream);
+                    isMicActive = true;
+                    micStatus.textContent = 'Live';
+                    statusDot.classList.add('active');
+                    statusText.textContent = 'Microphone active – your voice is resonating';
+                    updateUI();
+                    if (!animationId) drawVisualizers();
+
                 } catch (err) {
+                    // FIX 2: Catch any unhandled errors (e.g. Web Audio API node failures or strict browser policies)
+                    // and surface them properly in the UI instead of failing silently.
+                    console.error("Mic start failed:", err);
                     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                         showError('Microphone permission denied. Please allow access in your browser settings and try again.');
                     } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
@@ -265,30 +289,10 @@
                     } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
                         showError('Microphone is in use by another application. Close other apps and try again.');
                     } else {
-                        showError(`Microphone error: ${err.message}`);
+                        showError(`Microphone error: ${err.message || err.name || 'Unknown error'}`);
                     }
                     micStatus.textContent = 'Mic access failed';
-                    return;
                 }
-
-                // If we got here, we have a stream
-                if (!audioCtx) {
-                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                }
-                // Ensure context is running (user gesture)
-                if (audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
-                }
-
-                destroyGraph(); // clean any previous connections
-                hideError();
-                buildAudioGraph(stream);
-                isMicActive = true;
-                micStatus.textContent = 'Live';
-                statusDot.classList.add('active');
-                statusText.textContent = 'Microphone active – your voice is resonating';
-                updateUI();
-                if (!animationId) drawVisualizers();
             }
 
             function buildAudioGraph(stream) {
@@ -512,8 +516,13 @@
             }
 
             function drawVisualizers() {
+                // FIX 3: Prevent infinite CPU-draining loop when analyzer is disconnected
+                if (!analyzer) {
+                    animationId = null;
+                    return;
+                }
                 animationId = requestAnimationFrame(drawVisualizers);
-                if (!analyzer) return;
+                
                 const oscW = oscCanvas.width, oscH = oscCanvas.height;
                 const fftW = fftCanvas.width, fftH = fftCanvas.height;
                 const timeData = new Float32Array(analyzer.frequencyBinCount);
