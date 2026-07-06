@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resonant Mic – Live Voice to Chord</title>
+    <style>
+        :root {
+            --bg: #0c0c0c;
+            --surface: #1c1c1c;
+            --surface2: #252525;
+            --text: #d8d8d8;
+            --muted: #8a8a8a;
+            --accent: #bb86fc;
+            --accent2: #03dac6;
+            --danger: #cf6679;
+            --border: #333;
+            --shadow: 0 8px 24px rgba(0,0,0,0.7);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px 16px 40px;
+            min-height: 100vh;
+        }
+        .container {
+            background: var(--surface);
+            padding: 26px 24px 22px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            max-width: 700px;
+            width: 100%;
+            box-shadow: var(--shadow);
+        }
+        h1 { color: var(--accent2); font-size: 1.7em; margin-bottom: 4px; letter-spacing: -0.3px; }
+        .subtitle { color: var(--muted); font-size: 0.88em; margin-bottom: 18px; }
+
+        /* Visualizers */
+        .visualizers { display: flex; gap: 10px; margin-bottom: 18px; width: 100%; }
+        .canvas-container { flex: 1; display: flex; flex-direction: column; }
+        .canvas-label { font-size: 0.68em; color: #777; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; text-align: center; }
+        canvas { width: 100%; height: 100px; background: #000; border-radius: 6px; border: 1px solid #2a2a2a; }
+
+        /* Mic controls */
+        .mic-controls { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+        .mic-btn { padding: 12px 18px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.95em; transition: all 0.2s; letter-spacing: 0.3px; }
+        #btn-start-mic { background: #2ecc71; color: #000; }
+        #btn-stop-mic { background: var(--danger); color: #fff; display: none; }
+        .mic-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+        .mic-status { font-size: 0.82em; color: #aaa; margin-left: 5px; }
+        .gain-slider { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 0.78em; color: #aaa; }
+        #input-gain { width: 80px; }
+
+        /* Toggle panel */
+        .toggle-panel { background: var(--surface2); border-radius: 10px; padding: 16px 18px 12px; margin-bottom: 16px; border: 1px solid #2a2a2a; }
+        .toggle-section-title { font-size: 0.72em; text-transform: uppercase; letter-spacing: 1.5px; color: #999; margin-bottom: 10px; font-weight: 600; }
+        .toggle-section-title.main { color: var(--accent2); }
+        .toggle-section-title.extra { color: var(--accent); margin-top: 14px; }
+        .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #1f1f1f; gap: 12px; }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-info { flex: 1; }
+        .toggle-name { font-weight: 600; font-size: 0.88em; color: #ddd; }
+        .toggle-desc { font-size: 0.68em; color: #777; margin-top: 1px; }
+        .switch { position: relative; display: inline-block; width: 46px; height: 24px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #3a3a3a; transition: 0.25s; border-radius: 24px; }
+        .slider::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: #ccc; transition: 0.25s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--accent); }
+        input:checked + .slider::before { transform: translateX(22px); background-color: #fff; }
+
+        .select-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .select-row label { font-size: 0.78em; color: #aaa; }
+        #chord-select { padding: 6px 10px; border-radius: 6px; background: #2a2a2a; color: #ddd; border: 1px solid #444; font-size: 0.82em; }
+
+        .status-bar { display: flex; align-items: center; gap: 8px; font-size: 0.78em; color: #888; margin-top: 8px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; flex-shrink: 0; }
+        .status-dot.active { background: #2ecc71; box-shadow: 0 0 8px #2ecc71; }
+
+        @media (max-width: 500px) {
+            .container { padding: 16px 12px; }
+            .mic-controls { flex-direction: column; align-items: stretch; }
+            .gain-slider { margin-left: 0; justify-content: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Resonant Mic</h1>
+        <p class="subtitle">Speak, sing, or play sound – your voice is instantly transformed into a shimmering chord. Every feature can be toggled in real time.</p>
+
+        <!-- Visualizers -->
+        <div class="visualizers">
+            <div class="canvas-container">
+                <span class="canvas-label">Oscilloscope</span>
+                <canvas id="osc-canvas"></canvas>
+            </div>
+            <div class="canvas-container">
+                <span class="canvas-label">Spectrum</span>
+                <canvas id="fft-canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Mic controls -->
+        <div class="mic-controls">
+            <button class="mic-btn" id="btn-start-mic">🎙 Start Mic</button>
+            <button class="mic-btn" id="btn-stop-mic">⏹ Stop</button>
+            <span class="mic-status" id="mic-status">Waiting for microphone...</span>
+            <div class="gain-slider">
+                <span>Input</span>
+                <input type="range" id="input-gain" min="0.2" max="2.5" step="0.05" value="1.0">
+            </div>
+        </div>
+
+        <!-- Toggle panel -->
+        <div class="toggle-panel">
+            <div class="toggle-section-title main">🔮 Resonance Engine</div>
+
+            <div class="toggle-row">
+                <div class="toggle-info">
+                    <span class="toggle-name">Enable Resonance</span>
+                    <span class="toggle-desc">Master bypass – turn off to hear only dry mic signal</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-resonance" checked><span class="slider"></span></label>
+            </div>
+
+            <div class="select-row">
+                <label for="chord-select">Chord:</label>
+                <select id="chord-select">
+                    <option value="C">C Major (C4 E4 G4 C5)</option>
+                    <option value="Am">A Minor (A3 C4 E4 A4)</option>
+                    <option value="F">F Major (F3 A3 C4 F4)</option>
+                    <option value="G">G Major (G3 B3 D4 G4)</option>
+                </select>
+                <label for="dry-mix">Dry Mix</label>
+                <input type="range" id="dry-mix" min="0" max="1" step="0.01" value="0.15" style="width:70px;">
+            </div>
+
+            <div class="toggle-section-title extra">✨ Advanced Resonance</div>
+            <div class="toggle-row">
+                <div class="toggle-info">
+                    <span class="toggle-name">Feedback Delay (tuned to root)</span>
+                    <span class="toggle-desc">Shimmering comb‑filtered echoes at the chord's base frequency</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-delay" checked><span class="slider"></span></label>
+            </div>
+            <div class="toggle-row">
+                <div class="toggle-info">
+                    <span class="toggle-name">Cascaded Bandpass Filters</span>
+                    <span class="toggle-desc">Two resonant stages per note for sharper, more vocal resonance</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-cascade" checked><span class="slider"></span></label>
+            </div>
+            <div class="toggle-row">
+                <div class="toggle-info">
+                    <span class="toggle-name">Pre‑Filter Saturation</span>
+                    <span class="toggle-desc">Soft tanh distortion excites harmonics the filters can grab</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-saturation" checked><span class="slider"></span></label>
+            </div>
+            <div class="toggle-row">
+                <div class="toggle-info">
+                    <span class="toggle-name">Q Modulation (Breathing)</span>
+                    <span class="toggle-desc">Slow LFOs vary each filter's resonance for organic movement</span>
+                </div>
+                <label class="switch"><input type="checkbox" id="toggle-qmod" checked><span class="slider"></span></label>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">Mic off – click "Start Mic" to begin</span>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            // DOM elements
+            const btnStart = document.getElementById('btn-start-mic');
+            const btnStop = document.getElementById('btn-stop-mic');
+            const micStatus = document.getElementById('mic-status');
+            const statusDot = document.getElementById('status-dot');
+            const statusText = document.getElementById('status-text');
+            const inputGainSlider = document.getElementById('input-gain');
+            const dryMixSlider = document.getElementById('dry-mix');
+            const chordSelect = document.getElementById('chord-select');
+
+            // Toggles
+            const toggleResonance = document.getElementById('toggle-resonance');
+            const toggleDelay = document.getElementById('toggle-delay');
+            const toggleCascade = document.getElementById('toggle-cascade');
+            const toggleSaturation = document.getElementById('toggle-saturation');
+            const toggleQmod = document.getElementById('toggle-qmod');
+
+            // Canvases
+            const oscCanvas = document.getElementById('osc-canvas');
+            const oscCtx = oscCanvas.getContext('2d');
+            const fftCanvas = document.getElementById('fft-canvas');
+            const fftCtx = fftCanvas.getContext('2d');
+
+            // Audio state
+            let audioCtx = null;
+            let isMicActive = false;
+            let stream = null;
+            let micSource = null;
+            let analyzer = null;
+            let animationId = null;
+
+            // Processing nodes (mic chain)
+            let inputGainNode = null;
+            let highpass = null;
+            let dryGainNode = null;
+            let resonanceBus = null; // split point for the resonant path
+            let waveshaper = null;
+            let satBypassGain = null;
+            let satThroughGain = null;
+            let bandpassInput = null;
+            let bandpassNodes = []; // array of {bp1, bp2, singleGain, cascadeGain, qLFO, qLFOGain}
+            let delayNode = null;
+            let delayFeedbackGain = null;
+            let delayOutputGain = null;
+            let delayFeedbackLP = null;
+            let masterGain = null;
+            let compressor = null;
+
+            // Chord definitions (frequencies in Hz)
+            const chords = {
+                'C': [261.63, 329.63, 392.00, 523.25],
+                'Am': [220.00, 261.63, 329.63, 440.00],
+                'F': [174.61, 220.00, 261.63, 349.23],
+                'G': [196.00, 246.94, 293.66, 392.00]
+            };
+
+            function getCurrentChordFreqs() {
+                return chords[chordSelect.value] || chords['C'];
+            }
+
+            // ── Canvas setup ──
+            function resizeCanvases() {
+                const dpr = window.devicePixelRatio || 1;
+                [oscCanvas, fftCanvas].forEach(c => {
+                    const rect = c.getBoundingClientRect();
+                    c.width = rect.width * dpr;
+                    c.height = rect.height * dpr;
+                });
+            }
+            resizeCanvases();
+            window.addEventListener('resize', resizeCanvases);
+
+            // ── Audio graph construction ──
+            async function startMic() {
+                if (isMicActive) return;
+
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+                } catch (err) {
+                    micStatus.textContent = 'Microphone access denied.';
+                    alert('Could not access microphone. Please allow permissions.');
+                    return;
+                }
+
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+                // Clean up previous graph if any (shouldn't happen, but safe)
+                destroyGraph();
+
+                // Create source
+                micSource = audioCtx.createMediaStreamSource(stream);
+                inputGainNode = audioCtx.createGain();
+                inputGainNode.gain.value = parseFloat(inputGainSlider.value);
+
+                // Highpass to remove rumble (80 Hz)
+                highpass = audioCtx.createBiquadFilter();
+                highpass.type = 'highpass';
+                highpass.frequency.value = 80;
+                highpass.Q.value = 0.7;
+
+                // Dry path
+                dryGainNode = audioCtx.createGain();
+                dryGainNode.gain.value = parseFloat(dryMixSlider.value);
+
+                // Resonance bus (will be processed)
+                resonanceBus = audioCtx.createGain();
+                resonanceBus.gain.value = 1;
+
+                // Saturation (optional)
+                waveshaper = audioCtx.createWaveShaper();
+                waveshaper.curve = createSoftClipCurve();
+                satBypassGain = audioCtx.createGain();
+                satThroughGain = audioCtx.createGain();
+
+                // Bandpass input mixer
+                bandpassInput = audioCtx.createGain();
+                bandpassInput.gain.value = 1;
+
+                // Master output
+                masterGain = audioCtx.createGain();
+                masterGain.gain.value = 0.85;
+
+                // Compressor for safety
+                compressor = audioCtx.createDynamicsCompressor();
+                compressor.threshold.value = -18;
+                compressor.ratio.value = 3;
+                compressor.attack.value = 0.005;
+                compressor.release.value = 0.15;
+
+                // Analyzer
+                analyzer = audioCtx.createAnalyser();
+                analyzer.fftSize = 2048;
+
+                // Connect raw mic: source -> inputGain -> highpass
+                micSource.connect(inputGainNode);
+                inputGainNode.connect(highpass);
+
+                // Split: highpass -> dryGain -> masterGain
+                highpass.connect(dryGainNode);
+                dryGainNode.connect(masterGain);
+
+                // Resonant path: highpass -> resonanceBus
+                highpass.connect(resonanceBus);
+
+                // Saturation routing
+                resonanceBus.connect(satBypassGain);
+                resonanceBus.connect(waveshaper);
+                waveshaper.connect(satThroughGain);
+                satBypassGain.connect(bandpassInput);
+                satThroughGain.connect(bandpassInput);
+
+                // Build bandpass bank
+                buildBandpassBank();
+
+                // Feedback delay
+                const rootFreq = getCurrentChordFreqs()[0];
+                delayNode = audioCtx.createDelay(1.0);
+                delayNode.delayTime.value = 1.0 / rootFreq;
+                delayFeedbackLP = audioCtx.createBiquadFilter();
+                delayFeedbackLP.type = 'lowpass';
+                delayFeedbackLP.frequency.value = 7000;
+                delayFeedbackLP.Q.value = 0.6;
+                delayFeedbackGain = audioCtx.createGain();
+                delayFeedbackGain.gain.value = toggleDelay.checked ? 0.3 : 0;
+                delayOutputGain = audioCtx.createGain();
+                delayOutputGain.gain.value = toggleDelay.checked ? 0.4 : 0;
+
+                // Tap from resonanceBus (before saturation)
+                resonanceBus.connect(delayNode);
+                delayNode.connect(delayFeedbackLP);
+                delayFeedbackLP.connect(delayFeedbackGain);
+                delayFeedbackGain.connect(delayNode);
+                delayNode.connect(delayOutputGain);
+                delayOutputGain.connect(masterGain);
+
+                // Final chain: masterGain -> compressor -> analyzer -> destination
+                masterGain.connect(compressor);
+                compressor.connect(analyzer);
+                analyzer.connect(audioCtx.destination);
+
+                // Apply initial toggle states
+                applyAllToggles();
+                updateUI();
+
+                isMicActive = true;
+                micStatus.textContent = 'Live';
+                statusDot.classList.add('active');
+                statusText.textContent = 'Microphone active – your voice is resonating';
+
+                if (!animationId) drawVisualizers();
+
+                btnStart.style.display = 'none';
+                btnStop.style.display = 'inline-block';
+            }
+
+            function buildBandpassBank() {
+                // Remove old bandpass nodes first
+                bandpassNodes.forEach(b => {
+                    if (b.qLFO) { try { b.qLFO.stop(); } catch(e) {} }
+                    try { b.bp1.disconnect(); } catch(e) {}
+                    try { b.bp2.disconnect(); } catch(e) {}
+                    try { b.singleGain.disconnect(); } catch(e) {}
+                    try { b.cascadeGain.disconnect(); } catch(e) {}
+                });
+                bandpassNodes = [];
+
+                const freqs = getCurrentChordFreqs();
+                freqs.forEach((freq, idx) => {
+                    const bp1 = audioCtx.createBiquadFilter();
+                    bp1.type = 'bandpass';
+                    bp1.frequency.value = freq;
+                    bp1.Q.value = 28;
+
+                    const bp2 = audioCtx.createBiquadFilter();
+                    bp2.type = 'bandpass';
+                    bp2.frequency.value = freq;
+                    bp2.Q.value = 28;
+
+                    const singleGain = audioCtx.createGain();
+                    const cascadeGain = audioCtx.createGain();
+
+                    bandpassInput.connect(bp1);
+                    bp1.connect(singleGain);
+                    bp1.connect(bp2);
+                    bp2.connect(cascadeGain);
+                    singleGain.connect(masterGain);
+                    cascadeGain.connect(masterGain);
+
+                    // Q modulation LFOs
+                    let qLFO = null;
+                    let qLFOGain = null;
+                    if (toggleQmod.checked) {
+                        qLFO = audioCtx.createOscillator();
+                        qLFOGain = audioCtx.createGain();
+                        const rates = [0.08, 0.11, 0.09, 0.13];
+                        qLFO.frequency.value = rates[idx] || 0.1;
+                        qLFOGain.gain.value = 22;
+                        qLFO.connect(qLFOGain);
+                        qLFOGain.connect(bp1.Q);
+                        qLFOGain.connect(bp2.Q);
+                        qLFO.start();
+                    }
+
+                    bandpassNodes.push({
+                        bp1, bp2, singleGain, cascadeGain, qLFO, qLFOGain
+                    });
+                });
+
+                // Apply cascade/single gain based on toggle
+                applyToggleCascade();
+            }
+
+            function applyAllToggles() {
+                applyToggleResonance();
+                applyToggleCascade();
+                applyToggleSaturation();
+                applyToggleDelay();
+                applyToggleQmod();
+            }
+
+            function applyToggleResonance() {
+                if (resonanceBus) {
+                    // When resonance is off, we want to mute the entire resonant path.
+                    // We do this by setting resonanceBus gain to 0.
+                    resonanceBus.gain.value = toggleResonance.checked ? 1 : 0;
+                }
+            }
+
+            function applyToggleCascade() {
+                if (!bandpassNodes.length) return;
+                bandpassNodes.forEach(b => {
+                    if (toggleCascade.checked) {
+                        b.singleGain.gain.value = 0;
+                        b.cascadeGain.gain.value = 1;
+                    } else {
+                        b.singleGain.gain.value = 1;
+                        b.cascadeGain.gain.value = 0;
+                    }
+                });
+            }
+
+            function applyToggleSaturation() {
+                if (satBypassGain && satThroughGain) {
+                    if (toggleSaturation.checked) {
+                        satBypassGain.gain.value = 0;
+                        satThroughGain.gain.value = 1;
+                    } else {
+                        satBypassGain.gain.value = 1;
+                        satThroughGain.gain.value = 0;
+                    }
+                }
+            }
+
+            function applyToggleDelay() {
+                if (delayFeedbackGain && delayOutputGain) {
+                    const val = toggleDelay.checked ? 0.3 : 0;
+                    delayFeedbackGain.gain.value = val;
+                    delayOutputGain.gain.value = toggleDelay.checked ? 0.4 : 0;
+                }
+            }
+
+            function applyToggleQmod() {
+                bandpassNodes.forEach(b => {
+                    if (b.qLFOGain) b.qLFOGain.gain.value = toggleQmod.checked ? 22 : 0;
+                });
+            }
+
+            function rebuildResonantPath() {
+                // Called when chord changes while active – must rebuild bandpass bank and delay timing
+                if (!isMicActive || !resonanceBus) return;
+
+                // Stop Q LFOs
+                bandpassNodes.forEach(b => { if (b.qLFO) { try { b.qLFO.stop(); } catch(e) {} } });
+                // Disconnect old bandpass nodes
+                bandpassNodes.forEach(b => {
+                    try { b.bp1.disconnect(); } catch(e) {}
+                    try { b.bp2.disconnect(); } catch(e) {}
+                    try { b.singleGain.disconnect(); } catch(e) {}
+                    try { b.cascadeGain.disconnect(); } catch(e) {}
+                });
+                bandpassNodes = [];
+
+                // Rebuild bandpass bank
+                buildBandpassBank();
+
+                // Update delay time to new root freq
+                const newRoot = getCurrentChordFreqs()[0];
+                if (delayNode) delayNode.delayTime.value = 1.0 / newRoot;
+
+                // Re-apply all toggles
+                applyAllToggles();
+            }
+
+            function createSoftClipCurve() {
+                const curve = new Float32Array(256);
+                for (let i = 0; i < 256; i++) {
+                    const x = (i - 128) / 128;
+                    curve[i] = Math.tanh(x * 2.2);
+                }
+                return curve;
+            }
+
+            function destroyGraph() {
+                isMicActive = false;
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+                // Stop LFOs
+                bandpassNodes.forEach(b => { if (b.qLFO) { try { b.qLFO.stop(); } catch(e) {} } });
+                bandpassNodes = [];
+
+                // Disconnect everything (the references will be recreated)
+                if (micSource) { try { micSource.disconnect(); } catch(e) {} }
+                if (inputGainNode) { try { inputGainNode.disconnect(); } catch(e) {} }
+                if (highpass) { try { highpass.disconnect(); } catch(e) {} }
+                if (dryGainNode) { try { dryGainNode.disconnect(); } catch(e) {} }
+                if (resonanceBus) { try { resonanceBus.disconnect(); } catch(e) {} }
+                if (waveshaper) { try { waveshaper.disconnect(); } catch(e) {} }
+                if (satBypassGain) { try { satBypassGain.disconnect(); } catch(e) {} }
+                if (satThroughGain) { try { satThroughGain.disconnect(); } catch(e) {} }
+                if (bandpassInput) { try { bandpassInput.disconnect(); } catch(e) {} }
+                if (delayNode) { try { delayNode.disconnect(); } catch(e) {} }
+                if (delayFeedbackGain) { try { delayFeedbackGain.disconnect(); } catch(e) {} }
+                if (delayOutputGain) { try { delayOutputGain.disconnect(); } catch(e) {} }
+                if (delayFeedbackLP) { try { delayFeedbackLP.disconnect(); } catch(e) {} }
+                if (masterGain) { try { masterGain.disconnect(); } catch(e) {} }
+                if (compressor) { try { compressor.disconnect(); } catch(e) {} }
+                if (analyzer) { try { analyzer.disconnect(); } catch(e) {} }
+
+                micSource = null;
+                inputGainNode = null;
+                highpass = null;
+                dryGainNode = null;
+                resonanceBus = null;
+                waveshaper = null;
+                satBypassGain = null;
+                satThroughGain = null;
+                bandpassInput = null;
+                delayNode = null;
+                delayFeedbackGain = null;
+                delayOutputGain = null;
+                delayFeedbackLP = null;
+                masterGain = null;
+                compressor = null;
+                analyzer = null;
+            }
+
+            function stopMic() {
+                destroyGraph();
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
+                oscCtx.fillStyle = '#000'; oscCtx.fillRect(0, 0, oscCanvas.width, oscCanvas.height);
+                fftCtx.fillStyle = '#000'; fftCtx.fillRect(0, 0, fftCanvas.width, fftCanvas.height);
+                updateUI();
+                btnStart.style.display = 'inline-block';
+                btnStop.style.display = 'none';
+                statusText.textContent = 'Mic off – click "Start Mic" to begin';
+                statusDot.classList.remove('active');
+                micStatus.textContent = 'Microphone off';
+            }
+
+            function updateUI() {
+                const active = isMicActive;
+                btnStart.style.display = active ? 'none' : 'inline-block';
+                btnStop.style.display = active ? 'inline-block' : 'none';
+                if (active) micStatus.textContent = 'Live';
+                statusDot.classList.toggle('active', active);
+            }
+
+            // ── Visualizer loop ──
+            function drawVisualizers() {
+                animationId = requestAnimationFrame(drawVisualizers);
+                if (!analyzer) return;
+
+                const oscW = oscCanvas.width, oscH = oscCanvas.height;
+                const fftW = fftCanvas.width, fftH = fftCanvas.height;
+
+                const timeData = new Float32Array(analyzer.frequencyBinCount);
+                analyzer.getFloatTimeDomainData(timeData);
+                oscCtx.fillStyle = '#000';
+                oscCtx.fillRect(0, 0, oscW, oscH);
+                oscCtx.lineWidth = 2;
+                oscCtx.strokeStyle = '#bb86fc';
+                oscCtx.beginPath();
+                const sliceW = oscW / timeData.length;
+                let x = 0;
+                for (let i = 0; i < timeData.length; i++) {
+                    const y = (timeData[i] * oscH / 2) + (oscH / 2);
+                    if (i === 0) oscCtx.moveTo(x, y);
+                    else oscCtx.lineTo(x, y);
+                    x += sliceW;
+                }
+                oscCtx.stroke();
+
+                const freqData = new Uint8Array(analyzer.frequencyBinCount);
+                analyzer.getByteFrequencyData(freqData);
+                fftCtx.fillStyle = '#000';
+                fftCtx.fillRect(0, 0, fftW, fftH);
+                const barCount = Math.floor(freqData.length / 4);
+                const barW = fftW / barCount;
+                fftCtx.beginPath();
+                fftCtx.moveTo(0, fftH);
+                for (let i = 0; i < barCount; i++) {
+                    const v = freqData[i] / 255;
+                    fftCtx.lineTo(i * barW, fftH - (v * fftH));
+                }
+                fftCtx.lineTo(fftW, fftH);
+                fftCtx.fillStyle = 'rgba(187,134,252,0.5)';
+                fftCtx.fill();
+            }
+
+            // ── Event listeners ──
+            btnStart.addEventListener('click', startMic);
+            btnStop.addEventListener('click', stopMic);
+
+            inputGainSlider.addEventListener('input', () => {
+                if (inputGainNode) inputGainNode.gain.value = parseFloat(inputGainSlider.value);
+            });
+
+            dryMixSlider.addEventListener('input', () => {
+                if (dryGainNode) dryGainNode.gain.value = parseFloat(dryMixSlider.value);
+            });
+
+            chordSelect.addEventListener('change', () => {
+                if (isMicActive) rebuildResonantPath();
+            });
+
+            // Toggle handlers
+            function bindToggle(el, applyFn, needsRebuild = false) {
+                el.addEventListener('change', () => {
+                    if (!isMicActive) return;
+                    if (needsRebuild) {
+                        rebuildResonantPath();
+                    } else {
+                        applyFn();
+                    }
+                });
+            }
+
+            bindToggle(toggleResonance, applyToggleResonance);
+            bindToggle(toggleDelay, applyToggleDelay);
+            bindToggle(toggleCascade, applyToggleCascade);
+            bindToggle(toggleSaturation, applyToggleSaturation);
+            bindToggle(toggleQmod, applyToggleQmod);
+
+            // Cleanup on page unload
+            window.addEventListener('beforeunload', () => {
+                destroyGraph();
+                if (audioCtx) { try { audioCtx.close(); } catch(e) {} }
+            });
+
+            console.log('🎤 Resonant Mic ready. Click "Start Mic" to begin.');
+        })();
+    </script>
+</body>
+  </html>
